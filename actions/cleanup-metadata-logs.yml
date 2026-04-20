@@ -1,0 +1,53 @@
+name: Cleanup Custom Metadata Logs
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 2 * * *' # Daily at 02:00 UTC
+
+jobs:
+  cleanup-logs:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Salesforce CLI
+        run: |
+          npm install -g @salesforce/cli
+          sf version
+
+      - name: Create JWT key file
+        run: |
+          echo "${{ secrets.SF_JWT_KEY }}" > server.key
+          chmod 600 server.key
+
+      - name: Authenticate to Salesforce
+        run: |
+          sf org login jwt \
+            --username ${{ secrets.SF_USERNAME }} \
+            --client-id ${{ secrets.SF_CLIENT_ID }} \
+            --jwt-key-file server.key \
+            --instance-url ${{ secrets.SF_LOGIN_URL }} \
+            --alias ci-org
+
+      - name: Preview records to be deleted
+        run: |
+          sf data query \
+            --target-org ci-org \
+            --query "SELECT Id, Name, CreatedDate FROM Metadata_Log__c WHERE CreatedDate < LAST_N_DAYS:30" \
+            --result-format csv > logs-to-delete.csv
+
+      - name: Upload preview artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-marked-for-deletion
+          path: logs-to-delete.csv
+
+      - name: Delete old metadata logs
+        run: |
+          sf data delete bulk \
+            --target-org ci-org \
+            --sobject Metadata_Log__c \
+            --where "CreatedDate < LAST_N_DAYS:30"
