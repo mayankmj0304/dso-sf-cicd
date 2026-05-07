@@ -1,0 +1,89 @@
+name: Salesforce Scratch Org CI
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+      - develop
+
+jobs:
+  scratch-org-validation:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Checkout repository
+      - name: Checkout Source
+        uses: actions/checkout@v4
+
+      # Install Node.js
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # Install Salesforce CLI
+      - name: Install Salesforce CLI
+        run: |
+          npm install --global @salesforce/cli
+          sf --version
+
+      # Create JWT key file
+      - name: Create Server Key
+        run: |
+          echo "${{ secrets.SF_SERVER_KEY }}" > server.key
+          chmod 600 server.key
+
+      # Authenticate Dev Hub using JWT
+      - name: Authenticate Dev Hub
+        run: |
+          sf org login jwt \
+            --client-id ${{ secrets.SF_CLIENT_ID }} \
+            --jwt-key-file server.key \
+            --username ${{ secrets.SF_DEVHUB_USERNAME }} \
+            --alias DevHub \
+            --set-default-dev-hub
+
+      # Create Scratch Org
+      - name: Create Scratch Org
+        run: |
+          sf org create scratch \
+            --definition-file config/project-scratch-def.json \
+            --alias ciScratchOrg \
+            --duration-days 1 \
+            --set-default \
+            --wait 20
+
+      # Display org info
+      - name: Display Org Info
+        run: |
+          sf org display --target-org ciScratchOrg
+
+      # Deploy Metadata
+      - name: Deploy Source
+        run: |
+          sf project deploy start \
+            --target-org ciScratchOrg \
+            --wait 30
+
+      # Run Apex Tests
+      - name: Run Apex Tests
+        run: |
+          sf apex run test \
+            --target-org ciScratchOrg \
+            --test-level RunLocalTests \
+            --wait 30 \
+            --result-format human
+
+      # Optional - Run PMD / Code Scan
+      # - name: Run Static Code Analysis
+      #   run: |
+      #     echo "Add PMD or Code Analyzer here"
+
+      # Delete Scratch Org
+      - name: Delete Scratch Org
+        if: always()
+        run: |
+          sf org delete scratch \
+            --target-org ciScratchOrg \
+            --no-prompt
