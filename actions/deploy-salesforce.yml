@@ -1,0 +1,37 @@
+name: Salesforce Deployment
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'force-app/**'
+
+jobs:
+    deploy:
+        runs-on: ubuntu-latest
+
+        steps:
+        - name: Checkout Repository
+          uses: actions/checkout@v3
+        
+        - name: Install Node
+          uses: actions/setup-node@v4
+          with:
+            node-version: 20
+
+        - name: Install SF CLI
+          run: npm install --global @salesforce/cli
+
+        - name: Create server.key
+          run: |
+            mkdir -p assets
+            echo "${{ secrets.JWT_KEY }}" | base64 --decode > assets/server.key
+
+        - name: Authenticate SF 
+          run: |
+              sf org login jwt --client-id ${{ secrets.CLIENT_ID }} --jwt-key-file assets/server.key --username ${{ secrets.SF_USERNAME_UAT }} --instance-url https://login.salesforce.com --alias HUH
+        - name: SF Deploy
+          run: |
+              sf project deploy start --source-dir force-app --test-level RunLocalTests --target-org HUH --wait 120 --verbose
+          
